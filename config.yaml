@@ -1,0 +1,9 @@
+captioning_models: []
+use_azure_detector: false
+
+cards_detection:
+  enclosing: minrect
+  min_perimeter: 1500
+  max_perimeter: 2500
+clue_generation:
+  questions_to_blip2: 0
