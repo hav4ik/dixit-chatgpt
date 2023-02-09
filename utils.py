@@ -203,7 +203,7 @@ def get_cards_from_image(image_path, config):
     # Detect cards on the image
     detected_cards = detect_cards_on_monobg(
         image=cv2.cvtColor(cv2.imread(image_path), cv2.COLOR_BGR2RGB),
-        target_sz=(400, 600), cfg=config.cards_detection,
+        target_sz=(400, 600), cfg=config,
     )
     prefix, ext = os.path.splitext(image_path)
     detected_cards_paths = []

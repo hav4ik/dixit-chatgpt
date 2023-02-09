@@ -17,53 +17,165 @@ from utils import (
     reset_game_state,
     build_image_grid,
 )
+from captioning import (
+    generate_captions,
+    CaptioningModel,
+    BLIP2Wrapper,
+)
+from chaining import (
+    generate_clue_for_image,
+    guess_image_by_clue,
+)
 import omegaconf
+from functools import partial
 
 
-def generate_description_and_clues(det, config):
+CONFIG_PATH = "config.yaml"
+IMAGE_FOLDER = ".cache/images/"
+GAME_STATE_FOLDER = ".cache/game_state/"
+OUTPUT_LOGS = ".cache/output_logs/"
+os.makedirs(IMAGE_FOLDER, exist_ok=True)
+os.makedirs(GAME_STATE_FOLDER, exist_ok=True)
+os.makedirs(OUTPUT_LOGS, exist_ok=True)
+
+logging.basicConfig(format='%(asctime)s - %(levelname)s - %(message)s', level=logging.INFO)
+
+
+config = omegaconf.OmegaConf.load(CONFIG_PATH)
+if 'blip2' in config.captioning.models:
+    BLIP2_MODEL = BLIP2Wrapper(name='blip2_t5', model_type='pretrain_flant5xxl')
+else:
+    BLIP2_MODEL = None
+if 'git-large-coco' in config.captioning.models:
+    GIT_LARGE_COCO = CaptioningModel('git_large_coco')
+else:
+    GIT_LARGE_COCO = None
+if 'blip-large' in config.captioning.models:
+    BLIP_LARGE = CaptioningModel('blip_large')
+else:
+    BLIP_LARGE = None
+
+
+def generate_description_and_clues(det, config, blip2_model=None, mock=False):
     hashes, cards_images, card_images_paths = det["hashes"], det["cards"], det["cards_paths"],
 
-    # Mock outputs
-    ret_dict = dict()
-    for idx, (hash, image, image_path) in enumerate(zip(hashes, cards_images, card_images_paths)):
-        ret_dict.update({
-            hash: {
-                "image_path": image_path,
-                "captions": "none",
+    if not mock:
+        ret_dict = dict()
+        for idx, (hash, image, image_path) in enumerate(zip(hashes, cards_images, card_images_paths)):
+            results = generate_clue_for_image(
+                image,
+                generate_captions_fn=partial(
+                    generate_captions,
+                    blip2_model=BLIP2_MODEL,
+                    git_large_coco_model=GIT_LARGE_COCO,
+                    blip_large_model=BLIP_LARGE,                
+                ),
+                ask_blip2_fn=BLIP2_MODEL,
+                openai_model=config.openai_model,
+                num_blip2_questions=config.num_blip2_questions,
+            )
+            ret_dict.update({
+                hash: {
+                    "image_path": image_path,
+                    "captions": results["captions"],
+                    "pre_qna_interpretation": results["pre_qna_interpretation"],
+                    "qna_session": results["qna_session"],
+                    "interpretation": results["interpretation"],
+                    "association": results["association"],
+                    "clue": results["clue"],
+                },
+            })
+        return ret_dict
+    else:
+        # Mock outputs
+        ret_dict = dict()
+        for idx, (hash, image, image_path) in enumerate(zip(hashes, cards_images, card_images_paths)):
+            ret_dict.update({
+                hash: {
+                    "image_path": image_path,
+                    "captions": "none",
+                    "pre_qna_interpretation": "none",
+                    "qna_session": "none",
+                    "interpretation": "none",
+                    "association": "none",
+                    "clue": "none",
+                },
+            })
+        return ret_dict
+
+
+def choose_best_match_image_for_clue(clue, card_infos, config, blip2_model=None, mock=False):
+    images = [np.array(Image.open(card_info['image_path'])) for _, card_info in card_infos.items()]
+
+    if not mock:
+        generated_descriptions = None
+        have_precomputed_desc = True
+        for image_hash, card_info in card_infos.items():
+            have_precomputed_desc = have_precomputed_desc and (
+                'captions' in card_info and 'qna_session' in card_info and 
+                'interpretation' in card_info and 'pre_qna_interpretation' in card_info)
+        if have_precomputed_desc:
+            generated_descriptions = []
+            for image_hash, card_info in card_infos.items():
+                generated_descriptions.append({
+                    'captions': card_info['captions'],
+                    'pre_qna_interpretation': card_info['pre_qna_interpretation'],
+                    'qna_session': card_info['qna_session'],
+                    'interpretation': card_info['interpretation'],
+                })
+        results = guess_image_by_clue(
+            images=images,
+            clue=clue,
+            generate_captions_fn=partial(
+                generate_captions,
+                blip2_model=BLIP2_MODEL,
+                git_large_coco_model=GIT_LARGE_COCO,
+                blip_large_model=BLIP_LARGE,                
+            ),
+            ask_blip2_fn=BLIP2_MODEL,
+            openai_model=config.openai_model,
+            num_blip2_questions=config.num_blip2_questions,
+            clip_embeddings_fn=None,
+            generated_descriptions=generated_descriptions,
+        )
+        # Mock outputs
+        ret_dict = dict({
+            'per_image_explanations': [],
+            'final_answer': results['final_answer'],
+        })
+        for idx, (card_hash, card_info) in enumerate(card_infos.items()):
+            ret_dict['per_image_explanations'].append({
+                'idx': idx,
+                'image_path': card_info["image_path"],
+                'captions': results['per_image_reasoning'][idx]['captions'],
+                "pre_qna_interpretation": results['per_image_reasoning'][idx]['pre_qna_interpretation'],
+                "qna_session": results['per_image_reasoning'][idx]['qna_session'],
+                "interpretation": results['per_image_reasoning'][idx]['interpretation'],
+                "clue_relation": results['per_image_reasoning'][idx]['clue_relation'],
+            })
+        return ret_dict
+    else:
+        ret_dict = dict({
+            'per_image_explanations': [],
+            'final_answer': "none",
+        })
+        for idx, (card_hash, card_info) in enumerate(card_infos.items()):
+            ret_dict['per_image_explanations'].append({
+                'idx': idx,
+                'image_path': card_info["image_path"],
+                'captions': "none",
                 "pre_qna_interpretation": "none",
                 "qna_session": "none",
                 "interpretation": "none",
-                "association": "none",
-                "clue": "none",
-            },
-        })
-    return ret_dict
-
-
-def choose_best_match_image_for_clue(clue, card_infos, config):
-    images = [np.array(Image.open(card_info['image_path'])) for _, card_info in card_infos.items()]
-
-    # Mock outputs
-    ret_dict = dict({
-        'per_image_explanations': [],
-        'final_answer': "none",
-    })
-    for idx, (card_hash, card_info) in enumerate(card_infos.items()):
-        ret_dict['per_image_explanations'].append({
-            'idx': idx,
-            'image_path': card_info["image_path"],
-            'captions': "none",
-            "pre_qna_interpretation": "none",
-            "qna_session": "none",
-            "interpretation": "none",
-            "clue_relation": "none",
-        })
-    return ret_dict
+                "clue_relation": "none",
+            })
+        return ret_dict
 
 
 def instantiate_dixitbot():
     secrets = omegaconf.OmegaConf.load('secrets.yaml')
     bot = telebot.TeleBot(token=secrets.telegram_token, parse_mode=None)
+    os.environ['OPENAI_API_KEY'] = secrets.openai_api_key
 
     CONFIG_PATH = "config.yaml"
     IMAGE_FOLDER = ".cache/images/"
@@ -121,7 +233,7 @@ def instantiate_dixitbot():
         # Display only "interpretation", "association", and "clue" for each card
         response_text = ""
         for image_idx, (card_hash, card_info) in enumerate(game_state["my_cards"].items()):
-            response_text += f"Card {image_idx}: {card_info['clue']}\n"
+            response_text += f"Card {image_idx}: {card_info['clue'].strip()}\n"
         response_text += "\nTo get detailed explanation to the clues, please use command /hand_detailed."
 
         # Send message
@@ -141,6 +253,17 @@ def instantiate_dixitbot():
         if game_state["my_cards"] is None or len(game_state["my_cards"]) == 0:
             bot.reply_to(message, "Your hand is empty, there's no card in your hand.")
             return
+        
+        # Build a grid of images
+        image_paths = []
+        for card_hash, card_info in game_state["my_cards"].items():
+            image_paths.append(card_info["image_path"])
+        grid = build_image_grid(image_paths)
+        grid_bytes_stream = io.BytesIO()
+        grid.save(grid_bytes_stream, 'jpeg')
+        # Send message
+        bot.send_photo(message.chat.id, grid_bytes_stream.getvalue(), caption="Detailed descriptions below:",
+                       reply_to_message_id=message.message_id)
 
         # Build a grid of images
         for image_idx, (card_hash, card_info) in enumerate(game_state["my_cards"].items()):
@@ -150,7 +273,7 @@ def instantiate_dixitbot():
             cap_text += f"qna_session:\n{card_info['qna_session']}\n\n"
             cap_text += f"interpretation:\n{card_info['interpretation']}\n\n"
             cap_text += f"association:\n{card_info['association']}"
-            bot.send_photo(message.chat.id, open(card_info["image_path"], 'rb'), caption=cap_text)
+            bot.reply_to(message, cap_text)
 
     @bot.message_handler(func=lambda m: str(m.caption).startswith("/add"), content_types=['photo'])
     def add_cards_to_hand(message):
@@ -169,7 +292,7 @@ def instantiate_dixitbot():
 
         # Detect cards
         start_detection = datetime.now()
-        det = get_cards_from_image(image_cache_path, config=config)
+        det = get_cards_from_image(image_cache_path, config=config.cards_detection)
         already_added_indices = [i for i, h in enumerate(det["hashes"]) if h in game_state["my_cards"].keys()]
 
         # Write logs for detected cards
@@ -187,7 +310,7 @@ def instantiate_dixitbot():
 
         # Generate descriptions and clues
         clue_generation_start = datetime.now()
-        descriptions = generate_description_and_clues(det, config=config)
+        descriptions = generate_description_and_clues(det, config=config.generate_clue)
         for idx, (img_hash, img_info) in enumerate(descriptions.items()):
             game_state["my_cards"].update(descriptions)
 
@@ -231,18 +354,26 @@ def instantiate_dixitbot():
         bot.reply_to(message, "Done removing cards. You can see your new hand with command /hand.")
 
     @bot.message_handler(func=lambda m: str(m.text).startswith("/log"))
-    def show_event(message):
+    def show_logs(message):
         event_id = message.text[len('/log_'):].strip()
         logging.log(logging.INFO, f"Received [show event] request from {message.from_user.username} for event {event_id}")
         event_log_path = os.path.join(OUTPUT_LOGS, f"{event_id}.yaml")
         with open(event_log_path, 'r') as fd:
             event_log_text = fd.read()
-        bot.reply_to(message, event_log_text)
+        for i in range(0, len(event_log_text), 4095):
+            bot.reply_to(message, event_log_text[i:min(len(event_log_text), i + 4095)])
 
-    @bot.message_handler(commands=['get'])
+    @bot.message_handler(func=lambda m: str(m.text).startswith("/echo"))
+    def echo_last_response(message):
+        logging.log(logging.INFO, f"Received [echo] request from {message.from_user.username}")
+        with open(os.path.join(OUTPUT_LOGS, 'last_response.txt'), 'r') as fd:
+            echo_text = fd.read()
+        bot.reply_to(message, echo_text)
+
+    @bot.message_handler(commands=['clue'])
     def guess_card_from_clue_from_hand(message):
         logging.log(logging.INFO, f"Received [get card from hand by clue] request from {message.from_user.username}")
-        clue = message.text[len('/get'):].strip()
+        clue = message.text[len('/clue'):].strip()
 
         # Get config
         config = omegaconf.OmegaConf.load(CONFIG_PATH)
@@ -254,7 +385,7 @@ def instantiate_dixitbot():
 
         # Generate descriptions and clues
         guess_image_start = datetime.now()
-        results = choose_best_match_image_for_clue(clue, game_state["my_cards"], config=config)
+        results = choose_best_match_image_for_clue(clue, game_state["my_cards"], config=config.guess_image)
         
         # Dump full logs
         event_log_id = str(uuid.uuid4().hex)
@@ -271,17 +402,20 @@ def instantiate_dixitbot():
         grid.save(grid_bytes_stream, 'jpeg')
 
         guess_image_time = (datetime.now() - guess_image_start).total_seconds()
+        final_response = f"Clue: {clue}\nAnswer: " + results["final_answer"].strip() + "\n\n" + (
+            "-------------------\n"
+            f"Guessed the card (from hand) matching given clue in {guess_image_time} seconds. "
+            f"Full logs can be displayed using command /log_{event_log_id}")
         bot.send_photo(
             message.chat.id, grid_bytes_stream.getvalue(), reply_to_message_id=message.message_id,
-            caption=f"Clue: {clue}\nAnswer: " + results["final_answer"].strip() + "\n\n" + (
-                "-------------------\n"
-                f"Guessed the card (from hand) matching given clue in {guess_image_time} seconds. "
-                f"Full logs can be displayed using command /log_{event_log_id}"))
+            caption=final_response)
+        with open(os.path.join(OUTPUT_LOGS, 'last_response.txt'), 'w') as fd:
+            fd.write(final_response)
 
-    @bot.message_handler(func=lambda m: str(m.caption).startswith("/find"), content_types=['photo'])
+    @bot.message_handler(func=lambda m: str(m.caption).startswith("/clue"), content_types=['photo'])
     def guess_card_from_clue(message):
         logging.log(logging.INFO, f"Received [get card from hand by clue] request from {message.from_user.username}")
-        clue = message.caption[len('/find'):].strip()
+        clue = message.caption[len('/clue'):].strip()
 
         # Download the image in message
         image_cache_path = download_image_from_message_to_cache(bot, message, image_folder=IMAGE_FOLDER)
@@ -296,7 +430,7 @@ def instantiate_dixitbot():
 
         # Detect cards
         start_detection = datetime.now()
-        det = get_cards_from_image(image_cache_path, config=config)
+        det = get_cards_from_image(image_cache_path, config=config.cards_detection)
         
         # Write logs for detected cards
         detection_time = (datetime.now() - start_detection).total_seconds()
@@ -319,7 +453,7 @@ def instantiate_dixitbot():
         guess_image_start = datetime.now()
         card_hashes, card_image_paths = det["hashes"], det["cards_paths"]
         card_infos = {h: {'image_path': p} for h, p in zip(card_hashes, card_image_paths)}
-        results = choose_best_match_image_for_clue(clue, card_infos, config=config)
+        results = choose_best_match_image_for_clue(clue, card_infos, config=config.guess_image)
         
         # Dump full logs
         event_log_id = str(uuid.uuid4().hex)
@@ -328,12 +462,15 @@ def instantiate_dixitbot():
             yaml.dump(results, fd, default_flow_style=False, sort_keys=False)
 
         guess_image_time = (datetime.now() - guess_image_start).total_seconds()
+        final_response = f"Clue: {clue}\nAnswer: " + results["final_answer"].strip() + "\n\n" + (
+            "-------------------\n"
+            f"Guessed the card (from hand) matching given clue in {guess_image_time} seconds. "
+            f"Full logs can be displayed using command /log_{event_log_id}")
         bot.send_photo(
             message.chat.id, grid_bytes_stream.getvalue(), reply_to_message_id=message.message_id,
-            caption=f"Clue: {clue}\nAnswer: " + results["final_answer"].strip() + "\n\n" + (
-                "-------------------\n"
-                f"Guessed the card (from hand) matching given clue in {guess_image_time} seconds. "
-                f"Full logs can be displayed using command /log_{event_log_id}"))
+            caption=final_response)
+        with open(os.path.join(OUTPUT_LOGS, 'last_response.txt'), 'w') as fd:
+            fd.write(final_response)
 
     # return the dixit bot
     return bot

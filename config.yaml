@@ -5,7 +5,10 @@ cards_detection:
 
 image_description:
   captioning:
-    captioning_models: []
+    models:
+    - blip2
+    - git-large-coco
+    - blip-large
     use_azure_detector: false
   
 clue_generation:

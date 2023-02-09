@@ -99,22 +99,9 @@ def get_clue_chain(model='text-davinci-003',
 def talk_with_blip2(image_interpretation,
                     image,
                     ask_blip2_fn,
-                    clue=None,
                     num_questions=2,
                     model='text-davinci-003',
                     verbose=True):
-    question_answering_log = []
-    blip2_answer = "Only ask me questions that matters."
-    if clue is not None:
-        # Can we directly ask BLIP2 to explain the connection? believe in T5!
-        direct_question = f"How does this image relate to the phrase {clue}"
-        question_answering_log.append("Question: " + direct_question)
-        blip2_answer = ask_blip2_fn(image, direct_question)
-        if verbose:
-            print("Answer:", blip2_answer)
-        question_answering_log.append("Answer: " + blip2_answer.strip())
-    
-    # Think about what we want to ask
     image_interpretation = image_interpretation.strip()
 
     pre_llm = OpenAI(model_name=model, max_tokens=256)
@@ -135,8 +122,8 @@ def talk_with_blip2(image_interpretation,
     prompt = PromptTemplate(
         input_variables=["blip2_answer", "chat_history"],
         template=(
-            "Your name is Bob, you're talking with Alice to understand "
-            "a photo. Your task is to get more information "
+            "Your name is Bob, you're trying to talk with Alice to make sense "
+            "of an photo that you don't see. Your task is to get more information "
             "about the photo from Alice by asking her short questions. "
             "Hint - a good question is about the actions happening in the "
             "photo and what a specific character is doing, or about other "
@@ -152,7 +139,7 @@ def talk_with_blip2(image_interpretation,
             "\n"
             "Alice: {blip2_answer}"
             "\n"
-            "Alice: You can ask me one short question about the photo. "
+            "Alice: You can ask me one more short question about the photo. "
             "\n"
             "Bob:"))
     memory = ConversationBufferMemory(
@@ -161,6 +148,8 @@ def talk_with_blip2(image_interpretation,
         ai_prefix="Bob")
     chain = LLMChain(llm=llm, prompt=prompt, memory=memory, verbose=verbose)
 
+    question_answering_log = []
+    blip2_answer = "Only ask me questions that matters."
     for iter in range(num_questions):
         results = chain.predict(
             blip2_answer=blip2_answer.strip(),
@@ -240,12 +229,8 @@ def generate_clue_for_image(image,
     } 
     if blip2_results != "":
         ret_dict['qna_session'] = blip2_results
-    else:
-        ret_dict['qna_session'] = ""
     if pre_qna_interpretation is not None:
         ret_dict['pre_qna_interpretation'] = pre_qna_interpretation
-    else:
-        ret_dict['pre_qna_interpretation'] = ""
     return ret_dict
 
 
@@ -289,9 +274,8 @@ def guess_image_by_clue(images,
                 blip2_results = talk_with_blip2(
                     image_interpretation=image_interpretation,
                     image=image,
-                    clue=clue,
                     ask_blip2_fn=ask_blip2_fn,
-                    num_questions=num_blip2_questions - 1,
+                    num_questions=num_blip2_questions,
                     model=openai_model,
                     verbose=verbose)
                 blip2_results = blip2_results.strip()
