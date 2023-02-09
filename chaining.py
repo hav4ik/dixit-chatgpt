@@ -3,6 +3,7 @@ from langchain.prompts import PromptTemplate
 from langchain.chains.conversation.memory import ConversationBufferMemory
 from langchain.chains import SimpleSequentialChain, SequentialChain
 from langchain.llms import OpenAI
+import numpy as np
 
 
 def get_image_interpretation_chain(model='text-davinci-003', verbose=True):

@@ -238,3 +238,38 @@ def get_cards_from_image(image_path, config):
         'collage_path': detection_collage_path,
         'debug_img_path': debug_collage_path,
     }
+
+
+def build_image_grid(image_paths, border=0):
+    """Builds a grid of images from a list of image paths."""
+    images = [Image.open(p) for p in image_paths]
+
+    # Choose the grid shape that can contain all images
+    grid_shapes = [(2, 3), (2, 4), (3, 4)]
+    for grid_shape in grid_shapes:
+        if grid_shape[0] * grid_shape[1] >= len(images):
+            break
+
+    # Resize all images to the size of image[0]
+    images = [img.resize(images[0].size) for img in images]
+
+    # In the center of each image, assign the image number using OpenCV
+    for i, img in enumerate(images):
+        img_copy = np.array(img).copy()
+        # Explanation of cv2.putText parameters:
+        # https://www.geeksforgeeks.org/python-opencv-cv2-puttext-method/
+        cv2.putText(img_copy, str(i), (img.size[0] // 2, img.size[1] // 2),
+                    cv2.FONT_HERSHEY_DUPLEX, 3, (0, 0, 255), 5)
+        images[i] = Image.fromarray(img_copy)
+
+    # Build grid
+    grid = Image.new('RGB', (
+        grid_shape[1] * images[0].size[0] + (grid_shape[1] - 1) * border,
+        grid_shape[0] * images[0].size[1] + (grid_shape[0] - 1) * border,
+    ))
+    for i, img in enumerate(images):
+        grid.paste(img, (
+            (i % grid_shape[1]) * (img.size[0] + border),
+            (i // grid_shape[1]) * (img.size[1] + border),
+        ))
+    return grid
