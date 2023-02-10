@@ -30,32 +30,21 @@ import omegaconf
 from functools import partial
 
 
-CONFIG_PATH = "config.yaml"
-IMAGE_FOLDER = ".cache/images/"
-GAME_STATE_FOLDER = ".cache/game_state/"
-OUTPUT_LOGS = ".cache/output_logs/"
-os.makedirs(IMAGE_FOLDER, exist_ok=True)
-os.makedirs(GAME_STATE_FOLDER, exist_ok=True)
-os.makedirs(OUTPUT_LOGS, exist_ok=True)
-
-logging.basicConfig(format='%(asctime)s - %(levelname)s - %(message)s', level=logging.INFO)
-
-
 class CaptioningEnsemble:
-    def __init__(self):
-        config = omegaconf.OmegaConf.load(CONFIG_PATH)
+    def __init__(self, config_path):
+        config = omegaconf.OmegaConf.load(config_path)
         if 'blip2' in config.image_description.captioning.models:
-            BLIP2_MODEL = BLIP2Wrapper(name='blip2_t5', model_type='pretrain_flant5xxl')
+            self.BLIP2_MODEL = BLIP2Wrapper(name='blip2_t5', model_type='pretrain_flant5xxl')
         else:
-            BLIP2_MODEL = None
+            self.BLIP2_MODEL = None
         if 'git-large-coco' in config.image_description.captioning.models:
-            GIT_LARGE_COCO = CaptioningModel('git_large_coco')
+            self.GIT_LARGE_COCO = CaptioningModel('git_large_coco')
         else:
-            GIT_LARGE_COCO = None
+            self.GIT_LARGE_COCO = None
         if 'blip-large' in config.image_description.captioning.models:
-            BLIP_LARGE = CaptioningModel('blip_large')
+            self.BLIP_LARGE = CaptioningModel('blip_large')
         else:
-            BLIP_LARGE = None
+            self.BLIP_LARGE = None
 
 
 def generate_description_and_clues(det, config, cap_ensemble, mock=False):
@@ -479,5 +468,6 @@ def instantiate_dixitbot(cap_ensemble):
 
 
 if __name__ == "__main__":
+    cap_ensemble = CaptioningEnsemble(config_path=CONFIG_PATH)
     bot = instantiate_dixitbot()
     bot.infinity_polling()
