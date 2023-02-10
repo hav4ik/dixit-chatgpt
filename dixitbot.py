@@ -41,22 +41,24 @@ os.makedirs(OUTPUT_LOGS, exist_ok=True)
 logging.basicConfig(format='%(asctime)s - %(levelname)s - %(message)s', level=logging.INFO)
 
 
-config = omegaconf.OmegaConf.load(CONFIG_PATH)
-if 'blip2' in config.captioning.models:
-    BLIP2_MODEL = BLIP2Wrapper(name='blip2_t5', model_type='pretrain_flant5xxl')
-else:
-    BLIP2_MODEL = None
-if 'git-large-coco' in config.captioning.models:
-    GIT_LARGE_COCO = CaptioningModel('git_large_coco')
-else:
-    GIT_LARGE_COCO = None
-if 'blip-large' in config.captioning.models:
-    BLIP_LARGE = CaptioningModel('blip_large')
-else:
-    BLIP_LARGE = None
+class CaptioningEnsemble:
+    def __init__(self):
+        config = omegaconf.OmegaConf.load(CONFIG_PATH)
+        if 'blip2' in config.image_description.captioning.models:
+            BLIP2_MODEL = BLIP2Wrapper(name='blip2_t5', model_type='pretrain_flant5xxl')
+        else:
+            BLIP2_MODEL = None
+        if 'git-large-coco' in config.image_description.captioning.models:
+            GIT_LARGE_COCO = CaptioningModel('git_large_coco')
+        else:
+            GIT_LARGE_COCO = None
+        if 'blip-large' in config.image_description.captioning.models:
+            BLIP_LARGE = CaptioningModel('blip_large')
+        else:
+            BLIP_LARGE = None
 
 
-def generate_description_and_clues(det, config, blip2_model=None, mock=False):
+def generate_description_and_clues(det, config, cap_ensemble, mock=False):
     hashes, cards_images, card_images_paths = det["hashes"], det["cards"], det["cards_paths"],
 
     if not mock:
@@ -66,11 +68,11 @@ def generate_description_and_clues(det, config, blip2_model=None, mock=False):
                 image,
                 generate_captions_fn=partial(
                     generate_captions,
-                    blip2_model=BLIP2_MODEL,
-                    git_large_coco_model=GIT_LARGE_COCO,
-                    blip_large_model=BLIP_LARGE,                
+                    blip2_model=cap_ensemble.BLIP2_MODEL,
+                    git_large_coco_model=cap_ensemble.GIT_LARGE_COCO,
+                    blip_large_model=cap_ensemble.BLIP_LARGE,                
                 ),
-                ask_blip2_fn=BLIP2_MODEL,
+                ask_blip2_fn=cap_ensemble.BLIP2_MODEL,
                 openai_model=config.openai_model,
                 num_blip2_questions=config.num_blip2_questions,
             )
@@ -104,7 +106,7 @@ def generate_description_and_clues(det, config, blip2_model=None, mock=False):
         return ret_dict
 
 
-def choose_best_match_image_for_clue(clue, card_infos, config, blip2_model=None, mock=False):
+def choose_best_match_image_for_clue(clue, card_infos, config, cap_ensemble, mock=False):
     images = [np.array(Image.open(card_info['image_path'])) for _, card_info in card_infos.items()]
 
     if not mock:
@@ -128,11 +130,11 @@ def choose_best_match_image_for_clue(clue, card_infos, config, blip2_model=None,
             clue=clue,
             generate_captions_fn=partial(
                 generate_captions,
-                blip2_model=BLIP2_MODEL,
-                git_large_coco_model=GIT_LARGE_COCO,
-                blip_large_model=BLIP_LARGE,                
+                blip2_model=cap_ensemble.BLIP2_MODEL,
+                git_large_coco_model=cap_ensemble.GIT_LARGE_COCO,
+                blip_large_model=cap_ensemble.BLIP_LARGE,                
             ),
-            ask_blip2_fn=BLIP2_MODEL,
+            ask_blip2_fn=cap_ensemble.BLIP2_MODEL,
             openai_model=config.openai_model,
             num_blip2_questions=config.num_blip2_questions,
             clip_embeddings_fn=None,
@@ -172,7 +174,7 @@ def choose_best_match_image_for_clue(clue, card_infos, config, blip2_model=None,
         return ret_dict
 
 
-def instantiate_dixitbot():
+def instantiate_dixitbot(cap_ensemble):
     secrets = omegaconf.OmegaConf.load('secrets.yaml')
     bot = telebot.TeleBot(token=secrets.telegram_token, parse_mode=None)
     os.environ['OPENAI_API_KEY'] = secrets.openai_api_key
@@ -310,7 +312,8 @@ def instantiate_dixitbot():
 
         # Generate descriptions and clues
         clue_generation_start = datetime.now()
-        descriptions = generate_description_and_clues(det, config=config.generate_clue)
+        descriptions = generate_description_and_clues(
+            det, config=config.generate_clue, cap_ensemble=cap_ensemble)
         for idx, (img_hash, img_info) in enumerate(descriptions.items()):
             game_state["my_cards"].update(descriptions)
 
@@ -385,7 +388,8 @@ def instantiate_dixitbot():
 
         # Generate descriptions and clues
         guess_image_start = datetime.now()
-        results = choose_best_match_image_for_clue(clue, game_state["my_cards"], config=config.guess_image)
+        results = choose_best_match_image_for_clue(
+            clue, game_state["my_cards"], config=config.guess_image, cap_ensemble=cap_ensemble)
         
         # Dump full logs
         event_log_id = str(uuid.uuid4().hex)
@@ -442,10 +446,7 @@ def instantiate_dixitbot():
                 f"Guessing which one matches the clue '{clue}'..."))
 
         # Build a grid of images
-        image_paths = []
-        for card_hash, card_info in game_state["my_cards"].items():
-            image_paths.append(card_info["image_path"])
-        grid = build_image_grid(image_paths)
+        grid = build_image_grid(det["cards_paths"])
         grid_bytes_stream = io.BytesIO()
         grid.save(grid_bytes_stream, 'jpeg')
 
@@ -453,7 +454,8 @@ def instantiate_dixitbot():
         guess_image_start = datetime.now()
         card_hashes, card_image_paths = det["hashes"], det["cards_paths"]
         card_infos = {h: {'image_path': p} for h, p in zip(card_hashes, card_image_paths)}
-        results = choose_best_match_image_for_clue(clue, card_infos, config=config.guess_image)
+        results = choose_best_match_image_for_clue(
+            clue, card_infos, config=config.guess_image, cap_ensemble=cap_ensemble)
         
         # Dump full logs
         event_log_id = str(uuid.uuid4().hex)
