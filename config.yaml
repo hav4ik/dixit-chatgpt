@@ -16,3 +16,7 @@ image_description:
 generate_clue:
   openai_model: text-davinci-003
   num_blip2_questions: 1
+
+guess_image:
+  openai_model: text-davinci-003
+  num_blip2_questions: 1

@@ -265,6 +265,7 @@ def guess_image_by_clue(images,
             })
 
             # Get first interpretation
+            """
             image_interp_chain = get_image_interpretation_chain(
                 model=openai_model, verbose=verbose)
             image_interpretation = image_interp_chain.predict(
@@ -274,20 +275,21 @@ def guess_image_by_clue(images,
             results[image_idx].update({
                 'interpretation': image_interpretation.strip(),
             })
+            """
 
             if num_blip2_questions > 0 and ask_blip2_fn is not None:
-                pre_qna_interpretation = image_interpretation
+                pre_qna_interpretation = ""  # image_interpretation
                 results[image_idx].update({
                     'pre_qna_interpretation': pre_qna_interpretation.strip(),
                 })
 
                 # Talk with BLIP-v2 to get more information
                 blip2_results = talk_with_blip2(
-                    image_interpretation=image_interpretation,
+                    image_interpretation=captioning_results["captions"].strip(),  # image_interpretation,
                     image=image,
                     clue=clue,
                     ask_blip2_fn=ask_blip2_fn,
-                    num_questions=num_blip2_questions - 1,
+                    num_questions=num_blip2_questions,
                     model=openai_model,
                     verbose=verbose)
                 blip2_results = blip2_results.strip()
