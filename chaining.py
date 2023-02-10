@@ -12,14 +12,14 @@ def get_image_interpretation_chain(model='text-davinci-003', verbose=True):
         input_variables=["image_descriptions", "ai_models"],
         template=(
             "I give you a list of descriptions of the same image by "
-            "different AI models ({ai_models}), and you have to think of an "
-            "association to that image. Here is the list of descriptions: "
+            "different AI models ({ai_models}), where BLIP-2 is the most trust-worthy. "
+            "Here is the list of descriptions: "
             "\n"
             "{image_descriptions}"
             "\n"
-            "Can you describe in detail how do you think this image looks "
-            "like? Be specific. By the way, it might be not an image of "
-            "the real world."))
+            "Can you describe in detail how do you imagine this image looks "
+            "like? What characters and objects are on the image, and what they are doing? "
+            "Be specific. By the way, it might be not an image of the real world."))
     desc_chain = LLMChain(
         llm=desc_llm, prompt=desc_prompt,
         output_key="image_interpretation", verbose=verbose)
@@ -43,9 +43,9 @@ def get_post_qna_inpterpretation_chain(model='text-davinci-003', verbose=True):
             "\n"
             "{qna_session}"
             "\n"
-            "Can you describe in detail how do you think this image looks "
-            "like? Be specific. By the way, it might be not an image of "
-            "the real world."))
+            "Can you describe in detail how do you imagine this image looks "
+            "like? What characters and objects are on the image, and what they are doing? "
+            "Be specific. By the way, it might be not an image of the real world."))
     desc_chain = LLMChain(
         llm=desc_llm, prompt=desc_prompt,
         output_key="image_interpretation", verbose=verbose)
@@ -55,13 +55,11 @@ def get_post_qna_inpterpretation_chain(model='text-davinci-003', verbose=True):
 def get_generic_clue_chain(model='text-davinci-003', verbose=True):
     association_llm = OpenAI(model_name=model, max_tokens=512)
     association_prompt = PromptTemplate(
-        input_variables=["image_interpretation", "qna_session"],
+        input_variables=["image_interpretation"],
         template=(
             "For an image with a following detailed description:"
             "\n"
             "{image_interpretation}"
-            "\n"
-            "{qna_session}"
             "\n"
             "What does it associate with for you? Be abstract and creative! "
             "Any phylosophical thoughts? What does it remind you about?"))
@@ -84,7 +82,7 @@ def get_generic_clue_chain(model='text-davinci-003', verbose=True):
         output_key="clue", verbose=verbose)
     return SequentialChain(
         chains=[association_chain, clue_chain],
-        input_variables=["image_interpretation", "qna_session"],
+        input_variables=["image_interpretation"],
         output_variables=["clue", "association"],
         verbose=verbose)
 
@@ -230,7 +228,7 @@ def generate_clue_for_image(image,
         verbose=verbose)
     clue_results = clue_chain({
         'image_interpretation': image_interpretation,
-        'qna_session': blip2_results,
+        # 'qna_session': blip2_results,
     })
     ret_dict = {
         'captions': captioning_results,

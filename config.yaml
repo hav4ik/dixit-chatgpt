@@ -4,13 +4,15 @@ cards_detection:
   max_perimeter: 2500
 
 image_description:
+  openai_model: text-davinci-003
   captioning:
     models:
     - blip2
     - git-large-coco
     - blip-large
     use_azure_detector: false
+  num_blip2_questions: 1
   
-clue_generation:
-  openai_model: text-curie-001
-  questions_to_blip2: 0
+generate_clue:
+  openai_model: text-davinci-003
+  num_blip2_questions: 1
