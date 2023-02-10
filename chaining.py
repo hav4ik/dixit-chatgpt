@@ -119,7 +119,8 @@ def talk_with_blip2(image_interpretation,
     pre_prompt = PromptTemplate(
         input_variables=["image_interpretation"],
         template=(
-            "You can't see this photo but you are given its short description:"
+            "You can't see this photo but you are given its description by AI models "
+            "(the most trust-worthy is BLIP-2):"
             "\n"
             "{image_interpretation}"
             "\n"
@@ -140,11 +141,9 @@ def talk_with_blip2(image_interpretation,
             "photo and what a specific character is doing, or about other "
             "objects or living creatures that are present in the photo."
             "\n"
-            "Alice: Here is the description of a photo that you don't see:"
-            "\n"
             f"{image_interpretation.strip()}"
             "\n"
-            f"Bob: {pre_results}"
+            f"{pre_results}"
             "\n"
             "{chat_history}"
             "\n"
@@ -188,21 +187,20 @@ def generate_clue_for_image(image,
     # Generate deep captions
     captioning_results = generate_captions_fn(image)
 
-    # Get first interpretation
-    image_interp_chain = get_image_interpretation_chain(
-        model=openai_model, verbose=verbose)
-    image_interpretation = image_interp_chain.predict(
-        image_descriptions=captioning_results["captions"],
-        ai_models=", ".join(captioning_results["models"]))
-    image_interpretation = image_interpretation.strip()
-
-    pre_qna_interpretation = None
+    #if num_blip2_questions == 0 or ask_blip2_fn is None:
+    #    # Get first interpretation
+    #    image_interp_chain = get_image_interpretation_chain(
+    #        model=openai_model, verbose=verbose)
+    #    image_interpretation = image_interp_chain.predict(
+    #        image_descriptions=captioning_results["captions"],
+    #        ai_models=", ".join(captioning_results["models"]))
+    #    image_interpretation = image_interpretation.strip()
+    #    pre_qna_interpretation = image_interpretation
     if num_blip2_questions > 0 and ask_blip2_fn is not None:
-        pre_qna_interpretation = image_interpretation
-
+        pre_qna_interpretation = ""
         # Talk with BLIP-v2 to get more information
         blip2_results = talk_with_blip2(
-            image_interpretation=image_interpretation,
+            image_interpretation=captioning_results["captions"],
             image=image,
             ask_blip2_fn=ask_blip2_fn,
             num_questions=num_blip2_questions,
