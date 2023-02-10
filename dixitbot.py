@@ -269,6 +269,7 @@ def instantiate_dixitbot(cap_ensemble):
     @bot.message_handler(func=lambda m: str(m.caption).startswith("/add"), content_types=['photo'])
     def add_cards_to_hand(message):
         logging.log(logging.INFO, f"Received [add images] request from {message.from_user.username}")
+        event_log_id = str(uuid.uuid4().hex)
 
         # Download the image in message
         image_cache_path = download_image_from_message_to_cache(bot, message, image_folder=IMAGE_FOLDER)
@@ -290,7 +291,8 @@ def instantiate_dixitbot(cap_ensemble):
         detection_time = (datetime.now() - start_detection).total_seconds()
         debug_message = (
             f"Found {len(det['cards'])} cards in {detection_time:0.1f} seconds. "
-            "Generating description and clues...")
+            "Generating description and clues... (If for any reason I lose connection, "
+            f"full logs can be displayed using command /log_{event_log_id}")
         if len(already_added_indices) > 0:
             debug_message += f" Cards {str(already_added_indices)} were already added."
 
@@ -307,7 +309,6 @@ def instantiate_dixitbot(cap_ensemble):
             game_state["my_cards"].update(descriptions)
 
         # Dump full logs
-        event_log_id = str(uuid.uuid4().hex)
         output_logs_path = os.path.join(OUTPUT_LOGS, f"{event_log_id}.yaml")
         with open(output_logs_path, 'w') as fd:
             yaml.dump(descriptions, default_flow_style=False, sort_keys=False)
@@ -366,6 +367,10 @@ def instantiate_dixitbot(cap_ensemble):
     def guess_card_from_clue_from_hand(message):
         logging.log(logging.INFO, f"Received [get card from hand by clue] request from {message.from_user.username}")
         clue = message.text[len('/clue'):].strip()
+        event_log_id = str(uuid.uuid4().hex)
+        bot.reply_to(message, (
+            "Processing request... If for any reason I lose connection, "
+            f"Full logs can be displayed using command /log_{event_log_id}"))
 
         # Get config
         config = omegaconf.OmegaConf.load(CONFIG_PATH)
@@ -381,7 +386,6 @@ def instantiate_dixitbot(cap_ensemble):
             clue, game_state["my_cards"], config=config.guess_image, cap_ensemble=cap_ensemble)
         
         # Dump full logs
-        event_log_id = str(uuid.uuid4().hex)
         output_logs_path = os.path.join(OUTPUT_LOGS, f"{event_log_id}.yaml")
         with open(output_logs_path, 'w') as fd:
             yaml.dump(results, fd)
@@ -408,6 +412,10 @@ def instantiate_dixitbot(cap_ensemble):
     @bot.message_handler(func=lambda m: str(m.caption).startswith("/clue"), content_types=['photo'])
     def guess_card_from_clue(message):
         logging.log(logging.INFO, f"Received [get card from hand by clue] request from {message.from_user.username}")
+        event_log_id = str(uuid.uuid4().hex)
+        bot.reply_to(message, (
+            "Processing request... If for any reason I lose connection, "
+            f"Full logs can be displayed using command /log_{event_log_id}"))
         clue = message.caption[len('/clue'):].strip()
 
         # Download the image in message
@@ -447,7 +455,6 @@ def instantiate_dixitbot(cap_ensemble):
             clue, card_infos, config=config.guess_image, cap_ensemble=cap_ensemble)
         
         # Dump full logs
-        event_log_id = str(uuid.uuid4().hex)
         output_logs_path = os.path.join(OUTPUT_LOGS, f"{event_log_id}.yaml")
         with open(output_logs_path, 'w') as fd:
             yaml.dump(results, fd, default_flow_style=False, sort_keys=False)
@@ -465,9 +472,3 @@ def instantiate_dixitbot(cap_ensemble):
 
     # return the dixit bot
     return bot
-
-
-if __name__ == "__main__":
-    cap_ensemble = CaptioningEnsemble(config_path=CONFIG_PATH)
-    bot = instantiate_dixitbot()
-    bot.infinity_polling()
